@@ -19,7 +19,7 @@ if not os.path.exists(csv_file):
 def detect_arduino_port():
     ports = list(serial.tools.list_ports.comports())
     for port in ports:
-        if "Arduino" in port.description or "COM4" in port.description or "USB-SERIAL" in port.description:
+        if "Arduino" in port.description or "COM3" in port.description or "USB-SERIAL" in port.description:
             return port.device
     return None
 arduino_port = detect_arduino_port()
