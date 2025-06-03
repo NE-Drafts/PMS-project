@@ -5,21 +5,47 @@ import os
 import time
 import serial
 import serial.tools.list_ports
-import csv
 from collections import Counter
-import random
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
 
-# Load YOLOv8 model (same model as entry)
-model = YOLO('/best.pt')
+# Flask app setup for database connection
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:Fomula123!@localhost:5432/parking_db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
-# CSV log file
-csv_file = 'plates_log.csv'
+# Define the ParkingLog model
+class ParkingLog(db.Model):
+    __tablename__ = 'parking_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    plate_number = db.Column(db.String(20), nullable=False)
+    entry_time = db.Column(db.DateTime, nullable=False)
+    exit_time = db.Column(db.DateTime)
+    payment_status = db.Column(db.String(20))
+    amount_paid = db.Column(db.Float)
+    parking_status = db.Column(db.String(20), default='IN_PARKING')
 
-# ===== Auto-detect Arduino Serial Port =====
+# Define the UnauthorizedExit model
+class UnauthorizedExit(db.Model):
+    __tablename__ = 'unauthorized_exits'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    plate_number = db.Column(db.String(20), nullable=False)
+    attempt_time = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    reason = db.Column(db.Text, nullable=False)
+
+# Initialize YOLO model and Tesseract
+model = YOLO('./best.pt')
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+# Detect Arduino port
 def detect_arduino_port():
     ports = list(serial.tools.list_ports.comports())
     for port in ports:
-        if "usbmodem" in port.device or "wchusbmodem" in port.device:
+        if "Arduino" in port.description or "COM12" in port.description or "USB-SERIAL" in port.description:
             return port.device
     return None
 
@@ -32,22 +58,34 @@ else:
     print("[ERROR] Arduino not detected.")
     arduino = None
 
-# ===== Ultrasonic Sensor (mock for now) =====
+# Mock ultrasonic distance function
+import random
 def mock_ultrasonic_distance():
     return random.choice([random.randint(10, 40)] + [random.randint(60, 150)] * 10)
 
-# ===== Check payment status in CSV =====
+# Check if payment is complete
 def is_payment_complete(plate_number):
-    if not os.path.exists(csv_file):
+    with app.app_context():
+        # Find the parking log entry for the given plate number
+        log = ParkingLog.query.filter_by(plate_number=plate_number, payment_status='PAID', parking_status='IN_PARKING').first()
+        if log:
+            # Update parking status to 'EXITED' and set the exit time
+            log.parking_status = 'EXITED'
+            log.exit_time = datetime.now()
+            db.session.commit()
+            print(f"[UPDATED] Parking status for {plate_number} set to 'EXITED'")
+            return True
         return False
-    with open(csv_file, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row['Plate Number'] == plate_number and row['Payment Status'] == '1':
-                return True
-    return False
 
-# ===== Webcam and Main Loop =====
+# Log unauthorized exit attempt
+def log_unauthorized_exit(plate_number, reason):
+    with app.app_context():
+        unauthorized_exit = UnauthorizedExit(plate_number=plate_number, reason=reason)
+        db.session.add(unauthorized_exit)
+        db.session.commit()
+        print(f"[LOGGED] Unauthorized exit attempt for {plate_number}: {reason}")
+
+# Main loop for car exit
 cap = cv2.VideoCapture(0)
 plate_buffer = []
 
@@ -69,12 +107,12 @@ while True:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 plate_img = frame[y1:y2, x1:x2]
 
-                # Preprocessing
+                # Preprocess the plate image
                 gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
                 blur = cv2.GaussianBlur(gray, (5, 5), 0)
                 thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
 
-                # OCR
+                # OCR to extract plate text
                 plate_text = pytesseract.image_to_string(
                     thresh, config='--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
                 ).strip().replace(" ", "")
@@ -104,6 +142,7 @@ while True:
                                         print("[GATE] Closing gate (sent '0')")
                                 else:
                                     print(f"[ACCESS DENIED] Payment NOT complete for {most_common}")
+                                    log_unauthorized_exit(most_common, "Payment not complete")
                                     if arduino:
                                         arduino.write(b'2')  # Trigger warning buzzer
                                         print("[ALERT] Buzzer triggered (sent '2')")

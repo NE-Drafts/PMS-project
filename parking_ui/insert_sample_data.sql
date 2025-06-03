@@ -1,0 +1,12 @@
+-- Insert sample data into parking_logs
+INSERT INTO parking_logs (plate_number, entry_time, exit_time, payment_status, amount_paid) VALUES
+('ABC123', '2024-03-06 08:00:00', '2024-03-06 10:30:00', 'PAID', 15.00),
+('XYZ789', '2024-03-06 09:15:00', '2024-03-06 11:45:00', 'PAID', 20.00),
+('DEF456', '2024-03-06 10:00:00', NULL, 'PENDING', NULL),
+('GHI789', '2024-03-06 11:30:00', NULL, 'PENDING', NULL),
+('JKL012', '2024-03-06 12:00:00', '2024-03-06 14:30:00', 'PAID', 25.00),
+('MNO345', '2024-03-06 13:15:00', NULL, 'PENDING', NULL),
+('PQR678', '2024-03-06 14:00:00', '2024-03-06 16:30:00', 'PAID', 30.00),
+('STU901', '2024-03-06 15:30:00', NULL, 'PENDING', NULL),
+('VWX234', '2024-03-06 16:00:00', '2024-03-06 18:30:00', 'PAID', 35.00),
+('YZA567', '2024-03-06 17:15:00', NULL, 'PENDING', NULL); 
